@@ -39,9 +39,16 @@ No topo do painel, o seletor escolhe o que cada corte gera:
 
 Vale para os próximos cortes. Um clipe já pronto pode ser refeito com o ajuste de tempo. Se o trecho não tiver fala, sai só a versão limpa.
 
-### Player sem anúncios
+### Ao vivo: um player por canal
 
-O "mostrar player" toca a gravação deste PC, não o player da Twitch. Como o streamlink já descarta os intervalos comerciais, não aparece a tela de anúncio, e o que se vê é exatamente o que vai para os clipes. Fica uns 15 s atrás da live. Pelo link embaixo do player dá para voltar ao player da Twitch, que é ao vivo mas mostra os anúncios.
+Logo abaixo dos cards fica um player para cada canal, todos tocando ao mesmo tempo, cada um com o botão MARCAR. Só um tem som por vez: o botão "ouvir" escolhe qual. Clicar na barra do player seleciona o canal no gráfico. "esconder players" desliga todos, o que alivia o PC e a internet de quem está assistindo.
+
+O seletor de fonte vale para todos os players e cada pessoa escolhe o seu:
+
+- **gravação deste PC** (padrão): sem anúncio, uns 15 s atrás da live.
+- **player da Twitch**: ao vivo, mas com a tela de intervalo comercial. Para quem assiste pelo link do amigo, pode ser mais leve, porque o vídeo vem da Twitch e não pelo túnel.
+
+Detalhe da gravação sem anúncio: o player toca a gravação deste PC, não o player da Twitch. Como o streamlink já descarta os intervalos comerciais, não aparece a tela de anúncio, e o que se vê é exatamente o que vai para os clipes. Fica uns 15 s atrás da live. Pelo link embaixo do player dá para voltar ao player da Twitch, que é ao vivo mas mostra os anúncios.
 
 ### O gráfico
 

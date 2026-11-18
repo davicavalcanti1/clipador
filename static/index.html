@@ -64,7 +64,20 @@
   .marcacao input { flex: 1; min-width: 140px; }
   #marcar { background: var(--roxo); border-color: var(--roxo); font-weight: 700; padding: 10px 18px; }
   #marcar.flash { background: var(--verde); border-color: var(--verde); }
-  .player { margin-top: 12px; aspect-ratio: 16/9; width: 100%; border: 0; border-radius: 8px; background: #000; }
+  #aovivo { padding: 16px 16px 0; }
+  #players { display: grid; grid-template-columns: repeat(auto-fill, minmax(380px, 1fr)); gap: 12px; }
+  @media (max-width: 500px) { #players { grid-template-columns: 1fr; } }
+  .pl { background: var(--card); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; display: flex; flex-direction: column; min-width: 0; }
+  .pl.sel { border-color: var(--roxo); box-shadow: 0 0 0 1px var(--roxo) inset; }
+  .pl .midia { position: relative; aspect-ratio: 16/9; background: #000; }
+  .pl .midia video, .pl .midia iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; background: #000; }
+  .pl .aviso { position: absolute; inset: 0; display: grid; place-items: center; color: var(--mut); font-size: 13px; pointer-events: none; }
+  .pl .barra { display: flex; gap: 8px; align-items: center; padding: 8px 10px; cursor: pointer; min-width: 0; }
+  .pl .pe { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+  .pl .barra button { padding: 4px 9px; font-size: 12px; flex: none; }
+  .pl .marcar-c { background: var(--roxo); border-color: var(--roxo); font-weight: 700; }
+  .pl .marcar-c.flash { background: var(--verde); border-color: var(--verde); }
+  .pl .som.ligado { background: #14532d; border-color: #166534; }
 
   /* clipes */
   .abas { display: flex; gap: 6px; margin-bottom: 12px; flex-wrap: wrap; align-items: center; }
@@ -116,6 +129,20 @@
 
 <section id="canais"></section>
 
+<section id="aovivo">
+  <div class="gtopo">
+    <h2>Ao vivo</h2>
+    <span class="mut" id="av-info"></span>
+    <span class="esp"></span>
+    <select id="av-fonte" title="de onde vem a imagem dos players">
+      <option value="gravacao">gravação deste PC (sem anúncio)</option>
+      <option value="twitch">player da Twitch (com anúncio)</option>
+    </select>
+    <button id="av-toggle">esconder players</button>
+  </div>
+  <div id="players"></div>
+</section>
+
 <main>
   <section class="box" id="painel-canal">
     <div class="gtopo">
@@ -159,11 +186,8 @@
       <select id="qualidade" title="qualidade da gravação">
         <option value="best">melhor qualidade</option><option value="1080p60,1080p,best">1080p</option><option value="720p60,720p,best">720p60</option><option value="720p30,720p,480p30,best">720p30</option><option value="480p30,480p,best">480p</option><option value="worst">mínima</option>
       </select>
-      <button id="tg-player">mostrar player</button>
     </div>
     <p class="mut">Atalhos: <b>M</b> marca no canal selecionado; <b>1</b> a <b>9</b> trocam de canal. A marcação pega 45 s antes e 15 s depois. Se duas pessoas marcarem o mesmo lance, vira um clipe só.</p>
-    <div id="player-slot"></div>
-    <p class="mut" id="player-info" style="display:none"></p>
   </section>
 
   <section class="box">
@@ -230,7 +254,7 @@ document.addEventListener('keydown', e => {
 function selecionar(nome) {
   if (sel === nome) return;
   sel = nome; ls.set('canal', nome); serie = null; trecho = null; mostrarTrecho();
-  if ($('#player-slot').innerHTML) abrirPlayer();
+  renderPlayers();
   renderCanais(); carregarSerie(); renderPainel();
 }
 
@@ -326,40 +350,88 @@ function renderPainel() {
 }
 $('#qualidade').onchange = async e => { await post(`/api/canais/${sel}/config`, { qualidade: e.target.value }); toast('vale a partir da próxima reconexão'); };
 
-/* player: por padrão toca a própria gravação (o streamlink já tira os anúncios, então não aparece a tela
-   de intervalo comercial da Twitch). Fica uns 10 a 15 s atrás da live. O player da Twitch fica como opção. */
-let hls = null, fonte = ls.get('fontePlayer', 'gravacao');
-function fecharPlayer() {
-  if (hls) { hls.destroy(); hls = null; }
-  $('#player-slot').innerHTML = ''; $('#player-info').style.display = 'none';
-  $('#tg-player').textContent = 'mostrar player';
-}
-function abrirPlayer() {
-  fecharPlayer();
-  if (!sel) return;
-  const info = $('#player-info'); info.style.display = '';
-  const troca = `<a href="#" id="trocar-fonte">${fonte === 'gravacao' ? 'usar o player da Twitch' : 'voltar para a gravação sem anúncios'}</a>`;
-  if (fonte === 'twitch') {
-    $('#player-slot').innerHTML = `<iframe class="player" allowfullscreen src="https://player.twitch.tv/?channel=${encodeURIComponent(sel)}&parent=${location.hostname}&muted=false"></iframe>`;
-    info.innerHTML = `Player da Twitch: ao vivo, mas com os intervalos comerciais. · ${troca}`;
-  } else {
-    $('#player-slot').innerHTML = '<video class="player" controls autoplay playsinline></video>';
-    const v = $('#player-slot video'), url = `/hls/${encodeURIComponent(sel)}/live.m3u8`;
-    info.innerHTML = `Tocando a gravação deste PC: sem anúncios, uns 15 s atrás da live. · ${troca}`;
-    if (window.Hls && Hls.isSupported()) {
-      hls = new Hls({ liveSyncDurationCount: 2, liveMaxLatencyDurationCount: 5, manifestLoadingMaxRetry: 30, manifestLoadingRetryDelay: 3000 });
-      hls.on(Hls.Events.ERROR, (e, d) => { if (d.fatal) { info.innerHTML = `Sem gravação recente deste canal (a live precisa estar no ar). · ${troca}`; ligarTroca(); } });
-      hls.loadSource(url); hls.attachMedia(v);
-    } else v.src = url;   // Safari toca HLS sozinho
+/* ---------------------------------------------------------------- ao vivo: um player por canal
+   Fonte "gravacao": toca a gravação deste PC (o streamlink já tira os anúncios, então não aparece a tela de
+   intervalo comercial). Fica uns 10 a 15 s atrás da live. Fonte "twitch": player oficial, ao vivo, com anúncios.
+   Só um player tem som por vez; os outros ficam mudos. */
+const players = new Map();
+let avFonte = ls.get('fontePlayer', 'gravacao'), avOculto = ls.get('avOculto', '0') === '1', comSom = ls.get('comSom', '');
+$('#av-fonte').value = avFonte;
+
+function montarMidia(p) {
+  if (p.hls) { p.hls.destroy(); p.hls = null; }
+  clearTimeout(p.retry);
+  const nome = p.nome, enc = encodeURIComponent(nome), slot = p.el.querySelector('.midia'), mudo = comSom !== nome;
+  p.fonte = avFonte; p.mudo = mudo;
+  if (avFonte === 'twitch') {
+    slot.innerHTML = `<iframe allowfullscreen allow="autoplay; fullscreen" src="https://player.twitch.tv/?channel=${enc}&parent=${location.hostname}&muted=${mudo}&autoplay=true"></iframe>`;
+    return;
   }
-  ligarTroca();
-  $('#tg-player').textContent = 'esconder player';
+  slot.innerHTML = '<video autoplay playsinline controls></video><div class="aviso" style="display:none"></div>';
+  const v = slot.querySelector('video'), aviso = slot.querySelector('.aviso'), url = `/hls/${enc}/live.m3u8`;
+  v.muted = mudo;
+  const esperar = () => {   // live fora do ar ou gravação parada: tenta de novo sozinho
+    aviso.textContent = 'esperando a gravação deste canal…'; aviso.style.display = '';
+    p.retry = setTimeout(() => { if (players.get(nome) === p && p.fonte === 'gravacao') montarMidia(p); }, 10000);
+  };
+  if (window.Hls && Hls.isSupported()) {
+    p.hls = new Hls({ liveSyncDurationCount: 2, liveMaxLatencyDurationCount: 5, manifestLoadingMaxRetry: 2 });
+    p.hls.on(Hls.Events.ERROR, (e, d) => { if (d.fatal) { p.hls.destroy(); p.hls = null; esperar(); } });
+    p.hls.on(Hls.Events.MANIFEST_PARSED, () => { aviso.style.display = 'none'; v.play().catch(() => {}); });
+    p.hls.loadSource(url); p.hls.attachMedia(v);
+  } else { v.src = url; v.onerror = esperar; }   // Safari toca HLS sozinho
 }
-function ligarTroca() {
-  const a = $('#trocar-fonte'); if (!a) return;
-  a.onclick = e => { e.preventDefault(); fonte = fonte === 'gravacao' ? 'twitch' : 'gravacao'; ls.set('fontePlayer', fonte); abrirPlayer(); };
+
+function ouvir(nome) {
+  comSom = comSom === nome ? '' : nome; ls.set('comSom', comSom);
+  for (const p of players.values()) {
+    const mudo = comSom !== p.nome;
+    const v = p.el.querySelector('video');
+    if (p.fonte === 'gravacao' && v) { v.muted = mudo; if (!mudo) v.play().catch(() => {}); p.mudo = mudo; }
+    else if (p.mudo !== mudo) montarMidia(p);   // no player da Twitch o som só muda recarregando
+  }
+  renderPlayers();
 }
-$('#tg-player').onclick = () => { $('#player-slot').innerHTML ? fecharPlayer() : abrirPlayer(); };
+
+function renderPlayers() {
+  const box = $('#players');
+  $('#av-toggle').textContent = avOculto ? 'mostrar players' : 'esconder players';
+  $('#av-info').textContent = avFonte === 'gravacao' ? 'gravação deste PC: sem anúncio, uns 15 s atrás da live' : 'player da Twitch: ao vivo, com os intervalos comerciais';
+  if (avOculto || !ultimo) {
+    for (const p of players.values()) { if (p.hls) p.hls.destroy(); clearTimeout(p.retry); p.el.remove(); }
+    players.clear(); return;
+  }
+  const nomes = ultimo.canais.map(c => c.nome);
+  for (const [n, p] of players) if (!nomes.includes(n)) { if (p.hls) p.hls.destroy(); clearTimeout(p.retry); p.el.remove(); players.delete(n); }
+  ultimo.canais.forEach(c => {
+    let p = players.get(c.nome);
+    if (!p) {
+      const el = document.createElement('div'); el.className = 'pl';
+      el.innerHTML = `<div class="midia"></div><div class="barra"><span class="dot"></span><b class="pn"></b><span class="mut pe"></span><span class="esp"></span>
+        <button class="som"></button><button class="marcar-c">MARCAR</button></div>`;
+      p = { nome: c.nome, el, hls: null, fonte: null, mudo: true };
+      el.querySelector('.barra').onclick = e => { if (!e.target.closest('button')) selecionar(c.nome); };
+      el.querySelector('.som').onclick = () => ouvir(c.nome);
+      el.querySelector('.marcar-c').onclick = e => marcar(c.nome, 0, e.target);
+      players.set(c.nome, p); box.appendChild(el);
+    }
+    if (p.fonte !== avFonte) montarMidia(p);
+    p.el.classList.toggle('sel', c.nome === sel);
+    p.el.querySelector('.dot').classList.toggle('on', c.gravacao.ao_vivo);
+    p.el.querySelector('.pn').textContent = c.nome;
+    const partes = [];
+    if (c.espectadores != null) partes.push(milhar(c.espectadores) + ' assistindo');
+    partes.push(`chat ${c.chat.atual}`);
+    if (c.audio.atual != null) partes.push(`${c.audio.atual} dB`);
+    if (!c.ativo) partes.push('pausado');
+    p.el.querySelector('.pe').textContent = partes.join(' · ');
+    const s = p.el.querySelector('.som');
+    s.textContent = comSom === c.nome ? 'com som' : 'ouvir'; s.classList.toggle('ligado', comSom === c.nome);
+    p.el.querySelector('.marcar-c').disabled = !c.ativo;
+  });
+}
+$('#av-fonte').onchange = e => { avFonte = e.target.value; ls.set('fontePlayer', avFonte); renderPlayers(); };
+$('#av-toggle').onclick = () => { avOculto = !avOculto; ls.set('avOculto', avOculto ? '1' : '0'); renderPlayers(); };
 
 /* ---------------------------------------------------------------- gráfico */
 document.querySelectorAll('#faixas button').forEach(b => {
@@ -652,7 +724,7 @@ async function atualizar() {
     $('#p-disco').textContent = `${d.livre_gb} GB livres` + (d.retencao_h ? ` · guarda ${d.retencao_h} h` : '');
     $('#p-disco').className = 'pill ' + (d.livre_gb < 20 ? 'bad' : '');
     if (d.link_amigo) { const b = $('#copiar-link'); b.style.display = ''; b.onclick = () => navigator.clipboard.writeText(d.link_amigo).then(() => toast('link copiado'), () => prompt('Link do amigo:', d.link_amigo)); }
-    renderCanais(); renderPainel(); render();
+    renderCanais(); renderPlayers(); renderPainel(); render();
     if (!serie && sel) carregarSerie();
   } catch (e) {}
 }
