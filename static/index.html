@@ -119,6 +119,7 @@
   <span class="pill" id="p-leg">legenda …</span>
   <span class="pill" id="p-enc">…</span>
   <span class="pill" id="p-disco">…</span>
+  <span class="pill" id="p-drive" title="clipes cortados vão sozinhos para a pasta do Google Drive">drive …</span>
   <span class="esp"></span>
   <select id="versoes" title="quais versões verticais gerar em cada corte">
     <option value="ambas">clipes com e sem legenda</option><option value="com">só com legenda</option><option value="sem">só sem legenda</option>
@@ -630,6 +631,7 @@ function criarCard(c) {
         ${s.audio ? `<span class="tag">áudio +${s.audio} dB</span>` : ''}
         ${s.twitch ? `<span class="tag">${s.twitch} clipe${s.twitch > 1 ? 's' : ''} twitch</span>` : ''}
         ${c.legenda ? '<span class="tag">legendado</span>' : ''}
+        ${c.drive ? '<span class="tag aprovado">no Drive</span>' : ''}
         <span class="tag">${c.t.slice(11, 19)}</span>
       </div>
       <canvas title="chat e volume no momento do clipe"></canvas>
@@ -721,6 +723,8 @@ async function atualizar() {
     $('#p-tw').textContent = `twitch: ${d.twitch}`; $('#p-tw').className = 'pill ' + (d.twitch === 'conectado' ? 'ok' : 'bad');
     $('#p-leg').textContent = `legenda: ${d.legenda}`; $('#p-leg').className = 'pill ' + (d.legenda.startsWith('Whisper') ? 'ok' : '');
     if (document.activeElement !== $('#versoes')) $('#versoes').value = d.versoes;
+    const pd = $('#p-drive'); pd.textContent = 'drive: ' + d.drive;
+    pd.className = 'pill ' + (d.drive === 'conectado' ? 'ok' : d.drive === 'desligado' ? '' : 'bad');
     $('#p-disco').textContent = `${d.livre_gb} GB livres` + (d.retencao_h ? ` · guarda ${d.retencao_h} h` : '');
     $('#p-disco').className = 'pill ' + (d.livre_gb < 20 ? 'bad' : '');
     if (d.link_amigo) { const b = $('#copiar-link'); b.style.display = ''; b.onclick = () => navigator.clipboard.writeText(d.link_amigo).then(() => toast('link copiado'), () => prompt('Link do amigo:', d.link_amigo)); }

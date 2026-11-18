@@ -72,6 +72,7 @@ PADRAO = {
     "anthropic_api_key": "",
     "cortes_simultaneos": 2,
     "retencao_h": 24,             # apaga gravação bruta mais velha que isso (0 = nunca)
+    "pasta_drive": "",            # ex.: G:/Meu Drive/Clipador (Google Drive para computador); vazio = fica no PC
     "auto": {"por_hora": 6, "bloco_min": 30, "nota_minima": 2.0, "margem_s": 180},
     "chat": {"janela": 10, "historico": 300, "fator": 2.5, "minimo": 18, "intervalo": 90,
              "reacao": 3, "por_pessoa": 3},
@@ -647,7 +648,7 @@ IRC = ConexaoIRC()
 # ---------------------------------------------------------------- legenda (Whisper)
 _WHISPER = None
 WHISPER_LOCK = threading.Lock()
-ESTADO = {"tunel": None, "encoder": None, "twitch": "desligado", "legenda": "desligada"}
+ESTADO = {"tunel": None, "encoder": None, "twitch": "desligado", "legenda": "desligada", "drive": "desligado"}
 
 
 def whisper():
@@ -851,7 +852,89 @@ def cortar(c, encoder):
     return vert.name, (cru.name if cru.exists() else None), info
 
 
+ARQUIVOS = ("arquivo", "limpo", "cru", "post")
+
+
+# ---------------------------------------------------------------- Google Drive (pasta sincronizada)
+def pasta_drive():
+    """Pasta do Google Drive para computador (ex.: G:\\Meu Drive\\Clipador). Vazia = desligado."""
+    p = (CFG.get("pasta_drive") or "").strip()
+    return Path(p) if p else None
+
+
+def achar_arquivo(nome):
+    """Arquivo de um clipe, esteja na pasta local ou já movido para o Drive."""
+    if not nome or "/" in nome or "\\" in nome or ".." in nome:
+        return None
+    p = CLIPES / nome
+    if p.exists():
+        return p
+    d = pasta_drive()
+    if d and d.exists():
+        for sub in d.iterdir():
+            q = sub / nome
+            if sub.is_dir() and q.exists():
+                return q
+    return None
+
+
+def apagar_arquivos(c):
+    for k in ARQUIVOS:
+        p = achar_arquivo(c.get(k))
+        if p:
+            p.unlink(missing_ok=True)
+
+
+def mover_no_drive(c, sub):
+    """Move os arquivos do clipe para <pasta_drive>/<sub>/ (canal ou _descartados). True se moveu tudo."""
+    d = pasta_drive()
+    if not d:
+        return False
+    if not d.exists():
+        if not d.parent.exists():        # o Drive para computador não está montado
+            ESTADO["drive"] = f"pasta não encontrada: {d}"
+            return False
+        d.mkdir(parents=True, exist_ok=True)
+    destino = d / sub
+    destino.mkdir(parents=True, exist_ok=True)
+    for k in ARQUIVOS:
+        origem = achar_arquivo(c.get(k))
+        if origem and origem.parent != destino:
+            shutil.move(str(origem), str(destino / origem.name))
+    return True
+
+
+def enviar_drive():
+    """Todo clipe cortado vai sozinho para o Drive, sem precisar aprovar. Os descartados vão para _descartados."""
+    while True:
+        time.sleep(10)
+        d = pasta_drive()
+        if not d:
+            ESTADO["drive"] = "desligado"
+            continue
+        if not d.exists() and not d.parent.exists():   # Drive para computador fechado ou sem login
+            ESTADO["drive"] = f"pasta não encontrada: {d}"
+            continue
+        try:
+            with DB.lock:
+                pendentes = [c for c in DB.clipes if c.get("arquivo") and not c.get("drive")
+                             and c["status"] in ("pronto", "aprovado", "descartado")]
+            for c in pendentes:
+                sub = "_descartados" if c["status"] == "descartado" else c["canal"]
+                if not mover_no_drive(c, sub):
+                    break
+                DB.mudar(c, drive=True)
+                log(f"[{c['canal']}] no Drive: {c['arquivo']}")
+            else:
+                ESTADO["drive"] = "conectado"
+        except Exception as e:
+            ESTADO["drive"] = f"erro: {str(e)[:60]}"
+            log("drive:", traceback.format_exc(limit=2))
+
+
 def aprovar_arquivos(c):
+    if pasta_drive():      # com o Drive ligado tudo já vai para lá; aprovar só marca o status
+        return
     for k in ("arquivo", "limpo", "post"):
         if c.get(k) and (CLIPES / c[k]).exists():
             shutil.copy2(CLIPES / c[k], APROVADOS / c[k])
@@ -889,13 +972,11 @@ def cortador(encoder):
         if not pendente:
             time.sleep(1.5)
             continue
-        for chave in ("arquivo", "limpo", "cru", "post"):
-            if pendente.get(chave):
-                (CLIPES / pendente[chave]).unlink(missing_ok=True)
+        apagar_arquivos(pendente)      # recorte: tira a versão anterior (no PC ou no Drive)
         inicio = time.time()
         try:
             vert, cru, info = cortar(pendente, encoder)
-            upd = {"arquivo": vert, "cru": cru, "tempo_corte": round(time.time() - inicio), **info}
+            upd = {"arquivo": vert, "cru": cru, "tempo_corte": round(time.time() - inicio), "drive": False, **info}
             nota_ia = info.get("nota_ia")
             fraco = nota_ia is not None and nota_ia < CFG["edicao"]["aprovar_nota_minima"]
             if pendente.get("auto") and not fraco:
@@ -1131,7 +1212,7 @@ def estado():
         "canais": [cn.resumo() for cn in CANAIS.values()],
         "chat": IRC.estado, "encoder": ESTADO["encoder"], "livre_gb": round(livre, 1),
         "twitch": ESTADO["twitch"], "legenda": ESTADO["legenda"] if CFG["legenda"]["ativa"] else "desligada",
-        "versoes": versoes_legenda(),
+        "versoes": versoes_legenda(), "drive": ESTADO["drive"],
         "auto": CFG["auto"], "retencao_h": CFG["retencao_h"], "fator": CFG["chat"]["fator"],
         "link_amigo": f"{ESTADO['tunel']}/?k={CFG['senha']}" if ESTADO["tunel"] else None,
         "agora": iso(agora()), "agora_ts": int(time.time()), "clipes": clipes,
@@ -1234,10 +1315,10 @@ async def api_acao(cid: str, acao: str, request: Request):
         DB.mudar(c, status="aprovado", aprovado_por=(d.get("quem") or "")[:20])
     elif acao == "descartar":
         desaprovar_arquivos(c)
-        DB.mudar(c, status="descartado")
+        DB.mudar(c, status="descartado", drive=False)    # com o Drive ligado, vai para _descartados
     elif acao == "restaurar":
         desaprovar_arquivos(c)
-        DB.mudar(c, status="pronto" if c.get("arquivo") else "candidato", auto=False)
+        DB.mudar(c, status="pronto" if c.get("arquivo") else "candidato", auto=False, drive=False)
     elif acao == "cortar":
         DB.mudar(c, status="aguardando", auto=False)
     elif acao == "ajustar":
@@ -1255,8 +1336,8 @@ async def api_acao(cid: str, acao: str, request: Request):
 
 @app.get("/arquivo/{nome}")
 def arquivo(nome: str, baixar: int = 0):
-    p = (CLIPES / nome).resolve()
-    if p.parent != CLIPES.resolve() or not p.exists():
+    p = achar_arquivo(nome)
+    if not p:
         raise HTTPException(404)
     tipo = "video/mp4" if p.suffix == ".mp4" else "text/plain; charset=utf-8"
     return FileResponse(p, media_type=tipo, filename=nome if baixar else None)
@@ -1370,7 +1451,7 @@ def main():
             CANAIS[nome] = Canal(nome)
     threading.Thread(target=IRC.loop, daemon=True).start()
     threading.Thread(target=preparar_cortes, daemon=True).start()
-    for alvo in (seletor, gravar_series, limpeza, twitch_api):
+    for alvo in (seletor, gravar_series, limpeza, twitch_api, enviar_drive):
         threading.Thread(target=alvo, daemon=True).start()
     if "--sem-tunel" not in sys.argv:
         threading.Thread(target=tunel, daemon=True).start()

@@ -27,6 +27,18 @@ O corte usa Intel QSV quando existe GPU Intel e cai para x264 na CPU quando não
 6. Uns 25 s depois o clipe aparece em "Para revisar". Ali dá para assistir, ver o gráfico do momento, ajustar início e fim (±10 s) e aprovar ou descartar.
 7. Os aprovados ficam em `clipesprovados\`, com o nome do canal no começo do arquivo.
 
+### Clipes direto no Google Drive
+
+Com o [Google Drive para computador](https://www.google.com/drive/download/) instalado e logado, coloque a pasta em `config.json`:
+
+```json
+"pasta_drive": "G:/Meu Drive/Clipador"
+```
+
+A partir daí, todo clipe cortado vai sozinho para `Clipador/<canal>/` no Drive, sem precisar aprovar: vertical, vertical sem legenda, horizontal e texto do post. O corte continua sendo feito no PC (é mais rápido) e o arquivo é movido logo depois. Os descartados vão para `Clipador/_descartados/` e voltam para a pasta do canal se forem restaurados. O painel continua tocando e baixando os clipes normalmente. No topo aparece o estado: "drive: conectado" ou "pasta não encontrada" (Drive fechado ou sem login), e nesse caso os clipes esperam no PC e sobem quando o Drive voltar.
+
+Para os arquivos não ocuparem espaço no PC, escolha "Fazer streaming de arquivos" nas preferências do Drive para computador. A gravação bruta (`gravacao\`) fica sempre no PC: ela é escrita sem parar e o corte precisa ler rápido.
+
 ### Com ou sem legenda
 
 No topo do painel, o seletor escolhe o que cada corte gera:
