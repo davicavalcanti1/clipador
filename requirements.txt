@@ -1,0 +1,6 @@
+fastapi==0.163.1
+uvicorn==0.54.0
+pydantic==2.14.3
+streamlink==8.6.3
+faster-whisper==1.2.1
+anthropic==2.9.0

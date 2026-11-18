@@ -1,0 +1,308 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Clipador</title>
+<style>
+  :root {
+    --bg: #0e0e10; --card: #18181b; --line: #2a2a2e; --text: #efeff1; --mut: #a1a1aa;
+    --roxo: #9147ff; --verde: #22c55e; --verm: #ef4444; --amar: #eab308; --azul: #3b82f6;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  header { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 10px 16px; border-bottom: 1px solid var(--line); position: sticky; top: 0; background: var(--bg); z-index: 5; }
+  header h1 { font-size: 16px; margin: 0 8px 0 0; }
+  .pill { padding: 3px 9px; border-radius: 99px; background: var(--card); border: 1px solid var(--line); color: var(--mut); font-size: 12px; white-space: nowrap; }
+  .pill.ok { color: var(--verde); border-color: #14532d; }
+  .pill.bad { color: var(--verm); border-color: #7f1d1d; }
+  .esp { flex: 1; }
+  input, button, select { font: inherit; color: var(--text); background: var(--card); border: 1px solid var(--line); border-radius: 6px; padding: 7px 10px; }
+  button { cursor: pointer; }
+  button:hover { border-color: #52525b; }
+  main { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr); gap: 16px; padding: 16px; }
+  @media (max-width: 900px) { main { grid-template-columns: 1fr; } }
+  .box { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 14px; }
+  #marcar { width: 100%; padding: 26px; font-size: 22px; font-weight: 700; background: var(--roxo); border: 0; border-radius: 10px; letter-spacing: .5px; }
+  #marcar:active { transform: scale(.98); }
+  #marcar.flash { background: var(--verde); }
+  .linha { display: flex; gap: 8px; margin-top: 10px; align-items: center; flex-wrap: wrap; }
+  .linha input { flex: 1; min-width: 140px; }
+  .dica { color: var(--mut); font-size: 12px; margin-top: 8px; }
+  .player { margin-top: 14px; aspect-ratio: 16/9; width: 100%; border: 0; border-radius: 8px; background: #000; }
+  #spark { display: flex; align-items: flex-end; gap: 2px; height: 40px; margin-top: 10px; }
+  #spark i { flex: 1; background: #3f3f46; min-height: 2px; border-radius: 1px; }
+  #spark i.alto { background: var(--roxo); }
+  .abas { display: flex; gap: 6px; margin-bottom: 12px; flex-wrap: wrap; }
+  .abas button.ativa { background: var(--roxo); border-color: var(--roxo); }
+  #lista { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 12px; }
+  .clip { background: #111113; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; display: flex; flex-direction: column; }
+  .clip video { width: 100%; aspect-ratio: 9/16; background: #000; display: block; }
+  .clip .vazio { aspect-ratio: 9/16; display: grid; place-items: center; color: var(--mut); text-align: center; padding: 12px; background: #09090b; }
+  .clip .info { padding: 10px; display: flex; flex-direction: column; gap: 6px; }
+  .tag { font-size: 11px; padding: 2px 7px; border-radius: 99px; border: 1px solid var(--line); color: var(--mut); }
+  .tag.chat { color: var(--amar); border-color: #713f12; }
+  .tag.pronto { color: var(--azul); border-color: #1e3a8a; }
+  .tag.aprovado { color: var(--verde); border-color: #14532d; }
+  .tag.erro, .tag.descartado { color: var(--verm); border-color: #7f1d1d; }
+  .btns { display: flex; gap: 6px; flex-wrap: wrap; }
+  .btns button { padding: 5px 8px; font-size: 12px; }
+  .btn-ok { background: #14532d; border-color: #166534; }
+  .btn-no { background: #3f1212; border-color: #7f1d1d; }
+  .ajuste { display: grid; grid-template-columns: auto 1fr auto; gap: 4px; align-items: center; font-size: 12px; color: var(--mut); }
+  .ajuste span { text-align: center; color: var(--text); }
+  .nota { width: 100%; font-size: 12px; padding: 5px 8px; }
+  .post { font-size: 12px; display: flex; flex-direction: column; gap: 4px; background: #18181b; border: 1px solid var(--line); border-radius: 6px; padding: 8px; }
+  .post button { align-self: flex-start; padding: 4px 8px; font-size: 12px; }
+  .mut { color: var(--mut); font-size: 12px; }
+  .erro { color: var(--verm); font-size: 11px; word-break: break-word; }
+  a { color: #bf94ff; }
+  #toast { position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%); background: var(--verde); color: #000; padding: 10px 16px; border-radius: 8px; font-weight: 600; opacity: 0; transition: opacity .2s; pointer-events: none; }
+  #toast.on { opacity: 1; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Clipador</h1>
+  <span class="pill" id="p-live">…</span>
+  <span class="pill" id="p-chat">chat …</span>
+  <span class="pill" id="p-tw">twitch …</span>
+  <span class="pill" id="p-leg">legenda …</span>
+  <span class="pill" id="p-enc">…</span>
+  <span class="pill" id="p-disco">…</span>
+  <span class="esp"></span>
+  <a href="/camera" class="pill">ajustar layout vertical</a>
+  <button id="copiar-link" style="display:none">copiar link do amigo</button>
+</header>
+
+<main>
+  <section>
+    <div class="box">
+      <div class="linha" style="margin-top:0">
+        <label for="quem" style="color:var(--mut)">Seu nome</label>
+        <input id="quem" placeholder="ex.: Davi" maxlength="20">
+      </div>
+      <div class="linha">
+        <input id="nota" placeholder="o que aconteceu? (opcional, Enter marca)" maxlength="80">
+      </div>
+      <div class="linha" style="margin-top:12px">
+        <button id="marcar">MARCAR CLIPE</button>
+      </div>
+      <div class="linha">
+        <span style="color:var(--mut)">Esqueceu de marcar?</span>
+        <button data-voltar="30">foi há 30 s</button>
+        <button data-voltar="60">há 1 min</button>
+        <button data-voltar="120">há 2 min</button>
+      </div>
+      <p class="dica"><b>Modo automático ligado:</b> picos de chat, de áudio e clipes de espectadores viram candidatos. A cada 30 min os melhores (até 6 por hora) são cortados, legendados e aprovados sozinhos. A marcação manual sempre é cortada.</p>
+      <p class="dica">Atalho: tecla <b>M</b> (com o foco fora da caixa de texto e fora do player). O clipe pega 45 s antes e 15 s depois do clique e fica pronto uns 25 s depois. Se vocês dois marcarem o mesmo lance, vira um clipe só.</p>
+      <div id="spark" title="mensagens no chat (últimos 5 min)"></div>
+      <p class="dica" id="chat-txt"></p>
+    </div>
+    <div class="box" style="margin-top:16px">
+      <div class="linha" style="margin-top:0; justify-content:space-between">
+        <b>Live</b>
+        <button id="tg-player">mostrar player</button>
+      </div>
+      <div id="player-slot"></div>
+    </div>
+  </section>
+
+  <section class="box">
+    <div class="abas" id="abas">
+      <button data-f="revisar" class="ativa">Para revisar</button>
+      <button data-f="fila">Na fila</button>
+      <button data-f="candidato">Candidatos</button>
+      <button data-f="aprovado">Aprovados</button>
+      <button data-f="descartado">Descartados</button>
+      <button data-f="todos">Todos</button>
+    </div>
+    <div id="lista"></div>
+    <p class="dica" id="vazio-lista"></p>
+  </section>
+</main>
+<div id="toast"></div>
+
+<script>
+const $ = s => document.querySelector(s);
+let filtro = 'revisar', canal = 'gilzera', ultimo = null;
+const cards = new Map();
+
+const quemEl = $('#quem');
+try { quemEl.value = localStorage.getItem('quem') || ''; } catch (e) {}
+quemEl.addEventListener('input', () => { try { localStorage.setItem('quem', quemEl.value); } catch (e) {} });
+
+function toast(t) { const el = $('#toast'); el.textContent = t; el.classList.add('on'); setTimeout(() => el.classList.remove('on'), 1600); }
+
+async function post(url, body) {
+  const r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body || {}) });
+  if (!r.ok) { const t = await r.text(); toast('erro: ' + t.slice(0, 80)); throw new Error(t); }
+  return r.json();
+}
+
+async function marcar(voltar = 0) {
+  if (!quemEl.value.trim()) { quemEl.focus(); toast('coloque seu nome primeiro'); return; }
+  const nota = $('#nota').value;
+  $('#nota').value = '';
+  const b = $('#marcar'); b.classList.add('flash'); setTimeout(() => b.classList.remove('flash'), 400);
+  await post('/api/marcar', { quem: quemEl.value, nota, voltar });
+  toast(voltar ? `marcado (${voltar} s atrás)` : 'marcado');
+  atualizar();
+}
+$('#marcar').onclick = () => marcar();
+document.querySelectorAll('[data-voltar]').forEach(b => b.onclick = () => marcar(+b.dataset.voltar));
+$('#nota').addEventListener('keydown', e => { if (e.key === 'Enter') marcar(); });
+document.addEventListener('keydown', e => {
+  if (e.target.tagName === 'INPUT') return;
+  if (e.key === 'm' || e.key === 'M') { e.preventDefault(); marcar(); }
+});
+
+$('#tg-player').onclick = () => {
+  const slot = $('#player-slot');
+  if (slot.innerHTML) { slot.innerHTML = ''; $('#tg-player').textContent = 'mostrar player'; return; }
+  slot.innerHTML = `<iframe class="player" allowfullscreen src="https://player.twitch.tv/?channel=${canal}&parent=${location.hostname}&muted=false"></iframe>`;
+  $('#tg-player').textContent = 'esconder player';
+};
+
+$('#abas').onclick = e => {
+  const f = e.target.dataset.f; if (!f) return;
+  filtro = f;
+  document.querySelectorAll('#abas button').forEach(b => b.classList.toggle('ativa', b.dataset.f === f));
+  render();
+};
+
+function passa(c) {
+  if (filtro === 'todos') return true;
+  if (filtro === 'revisar') return c.status === 'pronto' || c.status === 'erro';
+  if (filtro === 'fila') return c.status === 'aguardando' || c.status === 'cortando';
+  if (filtro === 'candidato') return c.status === 'candidato' || c.status === 'sobra';
+  return c.status === filtro;
+}
+
+const hora = s => s.slice(11, 19);
+const esc = s => String(s ?? '').replace(/[&<>"]/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[ch]));
+const rotulo = { candidato: 'candidato', sobra: 'não selecionado', aguardando: 'na fila', cortando: 'cortando…', pronto: 'para revisar', aprovado: 'aprovado', descartado: 'descartado', erro: 'erro' };
+
+function criarCard(c) {
+  const el = document.createElement('div');
+  el.className = 'clip';
+  const midia = c.arquivo && c.status !== 'aguardando' && c.status !== 'cortando'
+    ? `<video controls preload="metadata" playsinline src="/arquivo/${encodeURIComponent(c.arquivo)}#t=0.1"></video>`
+    : `<div class="vazio">${c.status === 'erro' ? 'falhou' : (c.status === 'cortando' ? 'cortando e legendando…' : c.status === 'candidato' ? 'candidato automático<br>aguardando o fim do bloco' : c.status === 'sobra' ? 'não entrou entre os melhores do bloco' : 'esperando o fim do lance…')}</div>`;
+  const s = c.sinais || {};
+  const origens = { chat: 'pico no chat', audio: 'pico de áudio', twitch: 'clipe de espectador' };
+  const quem = c.quem.length ? c.quem.join(', ') : 'automático: ' + (origens[c.origem] || c.origem);
+  el.innerHTML = `${midia}
+    <div class="info">
+      <div class="btns">
+        <span class="tag ${c.status}">${rotulo[c.status]}</span>
+        ${c.status === 'aprovado' && c.aprovado_por === 'automático' ? '<span class="tag aprovado">auto</span>' : ''}
+        ${c.nota_auto ? `<span class="tag chat" title="nota automática">nota ${c.nota_auto}</span>` : ''}
+        ${s.chat ? `<span class="tag">chat ${s.chat}x</span>` : ''}
+        ${s.audio ? `<span class="tag">áudio +${s.audio} dB</span>` : ''}
+        ${s.twitch ? `<span class="tag">${s.twitch} clipe${s.twitch > 1 ? 's' : ''} twitch</span>` : ''}
+        ${c.legenda ? '<span class="tag">legendado</span>' : ''}
+        <span class="tag">${hora(c.t)}</span>
+      </div>
+      <div style="font-size:12px;color:var(--mut)">${quem}</div>
+      ${c.titulo ? `<div class="post"><b>${esc(c.titulo)}</b>${c.gancho ? `<div class="mut">gancho: ${esc(c.gancho)}</div>` : ''}${c.descricao ? `<div>${esc(c.descricao)}</div>` : ''}${(c.hashtags || []).length ? `<div class="mut">${c.hashtags.map(h => '#' + esc(h)).join(' ')}</div>` : ''}<button data-copiar>copiar texto do post</button></div>` : ''}
+      ${c.nota_ia ? `<div class="mut">nota da IA: <b>${c.nota_ia}/10</b>${c.corte ? ` · trecho ${c.corte[0]}–${c.corte[1]} s` : ''}</div>` : ''}
+      ${c.obs ? `<div class="mut" style="color:var(--amar)">${esc(c.obs)}</div>` : ''}
+      ${c.erro_ia ? `<div class="erro">IA: ${esc(c.erro_ia)}</div>` : ''}
+      <input class="nota" value="${(c.nota || '').replace(/"/g, '&quot;')}" placeholder="nota / legenda">
+      <div class="ajuste">
+        <button data-a="antes" data-d="10">+10</button><span>começa ${c.antes} s antes</span><button data-a="antes" data-d="-10">−10</button>
+        <button data-a="depois" data-d="10">+10</button><span>termina ${c.depois} s depois</span><button data-a="depois" data-d="-10">−10</button>
+      </div>
+      <div class="btns">
+        ${c.status === 'pronto' ? '<button class="btn-ok" data-x="aprovar">Aprovar</button>' : ''}
+        ${['candidato', 'sobra'].includes(c.status) ? '<button class="btn-ok" data-x="cortar">Cortar este</button>' : ''}
+        ${['pronto', 'erro', 'aguardando', 'candidato'].includes(c.status) ? '<button class="btn-no" data-x="descartar">Descartar</button>' : ''}
+        ${['aprovado', 'descartado'].includes(c.status) ? '<button data-x="restaurar">Voltar p/ revisão</button>' : ''}
+        ${c.status === 'erro' ? '<button data-x="recortar">Tentar de novo</button>' : ''}
+        ${c.arquivo ? `<a class="tag" href="/arquivo/${encodeURIComponent(c.arquivo)}?baixar=1">baixar vertical</a>` : ''}
+        ${c.cru ? `<a class="tag" href="/arquivo/${encodeURIComponent(c.cru)}?baixar=1">baixar horizontal</a>` : ''}
+      </div>
+      ${c.erro ? `<div class="erro">${c.erro.replace(/</g, '&lt;')}</div>` : ''}
+    </div>`;
+  el.querySelectorAll('[data-a]').forEach(b => b.onclick = async () => {
+    const campo = b.dataset.a, novo = c[campo] + (+b.dataset.d);
+    await post(`/api/clipe/${c.id}/ajustar`, { [campo]: novo, nota: el.querySelector('.nota').value });
+    toast('recortando com o novo tempo'); atualizar();
+  });
+  el.querySelectorAll('[data-x]').forEach(b => b.onclick = async () => {
+    const x = b.dataset.x;
+    if (x === 'recortar') await post(`/api/clipe/${c.id}/ajustar`, {});
+    else await post(`/api/clipe/${c.id}/${x}`, { quem: quemEl.value });
+    atualizar();
+  });
+  const cp = el.querySelector('[data-copiar]');
+  if (cp) cp.onclick = () => {
+    const texto = [c.titulo, c.descricao, (c.hashtags || []).map(h => '#' + h).join(' ')].filter(Boolean).join('\n\n');
+    navigator.clipboard.writeText(texto).then(() => toast('texto copiado'), () => prompt('Texto do post:', texto));
+  };
+  el.querySelector('.nota').addEventListener('change', e => post(`/api/clipe/${c.id}/nota`, { nota: e.target.value }));
+  return el;
+}
+
+function render() {
+  if (!ultimo) return;
+  const lista = $('#lista');
+  const visiveis = ultimo.clipes.filter(passa).slice().reverse();
+  const ids = new Set(visiveis.map(c => c.id));
+  for (const [id, obj] of cards) if (!ids.has(id)) { obj.el.remove(); cards.delete(id); }
+  let anterior = null;
+  for (const c of visiveis) {
+    let obj = cards.get(c.id);
+    if (!obj || obj.v !== c.v) {
+      const tocando = obj && obj.el.querySelector('video') && !obj.el.querySelector('video').paused;
+      const focado = obj && obj.el.contains(document.activeElement);
+      if (obj && (tocando || focado) && obj.status === c.status) { obj.v = c.v; }
+      else {
+        const el = criarCard(c);
+        if (obj) obj.el.replaceWith(el);
+        obj = { el, v: c.v, status: c.status }; cards.set(c.id, obj);
+      }
+    }
+    const alvo = anterior ? anterior.nextSibling : lista.firstChild;
+    if (obj.el !== alvo) lista.insertBefore(obj.el, alvo);
+    anterior = obj.el;
+  }
+  $('#vazio-lista').textContent = visiveis.length ? '' : 'Nada aqui por enquanto.';
+  const n = s => ultimo.clipes.filter(c => s.includes(c.status)).length;
+  const abas = { revisar: n(['pronto', 'erro']), fila: n(['aguardando', 'cortando']), candidato: n(['candidato']), aprovado: n(['aprovado']) };
+  document.querySelectorAll('#abas button').forEach(b => {
+    const base = b.textContent.replace(/ \(\d+\)$/, '');
+    b.textContent = abas[b.dataset.f] ? `${base} (${abas[b.dataset.f]})` : base;
+  });
+}
+
+async function atualizar() {
+  try {
+    const r = await fetch('/api/estado'); if (!r.ok) return;
+    const d = await r.json(); ultimo = d; canal = d.canal;
+    const g = d.gravacao;
+    const pl = $('#p-live');
+    if (g.ao_vivo) {
+      const min = Math.round((new Date(d.agora) - new Date(g.inicio)) / 60000);
+      pl.textContent = `● gravando há ${Math.floor(min / 60)}h${String(min % 60).padStart(2, '0')}`; pl.className = 'pill ok';
+    } else { pl.textContent = `○ ${d.gravador}`; pl.className = 'pill bad'; }
+    const pc = $('#p-chat');
+    pc.textContent = `chat ${d.chat.estado} · ${d.chat.atual} msg/10 s`; pc.className = 'pill ' + (d.chat.estado === 'conectado' ? 'ok' : 'bad');
+    $('#p-enc').textContent = d.encoder ? `corte: ${d.encoder}` : 'corte: testando';
+    $('#p-tw').textContent = `clipes twitch: ${d.twitch}`; $('#p-tw').className = 'pill ' + (d.twitch === 'conectado' ? 'ok' : 'bad');
+    $('#p-leg').textContent = `legenda: ${d.legenda}`; $('#p-leg').className = 'pill ' + (d.legenda.startsWith('Whisper') ? 'ok' : '');
+    $('#p-disco').textContent = `${d.livre_gb} GB livres`;
+    $('#p-disco').className = 'pill ' + (d.livre_gb < 20 ? 'bad' : '');
+    const s = d.chat.serie, mx = Math.max(10, ...s);
+    $('#spark').innerHTML = s.map(v => `<i style="height:${Math.round(v / mx * 100)}%" class="${d.chat.base && v > d.chat.base * 2 ? 'alto' : ''}"></i>`).join('');
+    $('#chat-txt').textContent = d.chat.base ? `Média do chat: ${d.chat.base} por 10 s. Um pico acima de ~${Math.round(d.chat.base * 2.5)} vira sugestão automática.` : 'Aprendendo o ritmo normal do chat (1 min)…';
+    if (d.link_amigo) { const b = $('#copiar-link'); b.style.display = ''; b.onclick = () => { navigator.clipboard.writeText(d.link_amigo).then(() => toast('link copiado'), () => prompt('Link do amigo:', d.link_amigo)); }; }
+    render();
+  } catch (e) {}
+}
+atualizar();
+setInterval(atualizar, 2000);
+</script>
+</body>
+</html>

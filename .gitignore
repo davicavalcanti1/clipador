@@ -1,0 +1,13 @@
+# segredos e estado local
+config.json
+dados.json
+
+# mídia gerada (gigabytes)
+gravacao/
+clipes/
+tmp/
+
+# python
+.venv/
+__pycache__/
+*.pyc
