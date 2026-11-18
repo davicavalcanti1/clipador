@@ -27,6 +27,22 @@ O corte usa Intel QSV quando existe GPU Intel e cai para x264 na CPU quando não
 6. Uns 25 s depois o clipe aparece em "Para revisar". Ali dá para assistir, ver o gráfico do momento, ajustar início e fim (±10 s) e aprovar ou descartar.
 7. Os aprovados ficam em `clipesprovados\`, com o nome do canal no começo do arquivo.
 
+### Com ou sem legenda
+
+No topo do painel, o seletor escolhe o que cada corte gera:
+
+| Opção | Arquivos |
+|---|---|
+| clipes com e sem legenda (padrão) | `..._vertical.mp4` legendado e `..._vertical_sem_legenda.mp4` limpo (sem legenda, gancho nem marca) |
+| só com legenda | `..._vertical.mp4` legendado |
+| só sem legenda | `..._vertical.mp4` limpo. O Whisper nem roda, então o corte sai mais rápido |
+
+Vale para os próximos cortes. Um clipe já pronto pode ser refeito com o ajuste de tempo. Se o trecho não tiver fala, sai só a versão limpa.
+
+### Player sem anúncios
+
+O "mostrar player" toca a gravação deste PC, não o player da Twitch. Como o streamlink já descarta os intervalos comerciais, não aparece a tela de anúncio, e o que se vê é exatamente o que vai para os clipes. Fica uns 15 s atrás da live. Pelo link embaixo do player dá para voltar ao player da Twitch, que é ao vivo mas mostra os anúncios.
+
 ### O gráfico
 
 | Elemento | O que é |

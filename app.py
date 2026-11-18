@@ -76,7 +76,7 @@ PADRAO = {
     "chat": {"janela": 10, "historico": 300, "fator": 2.5, "minimo": 18, "intervalo": 90,
              "reacao": 3, "por_pessoa": 3},
     "audio": {"limiar": 8, "piso": -32, "intervalo": 60},
-    "legenda": {"ativa": True, "modelo": "small"},
+    "legenda": {"ativa": True, "modelo": "small", "versoes": "ambas"},   # versoes: "com", "sem" ou "ambas"
     "edicao": {"ativa": False, "zoom": True, "volume_lufs": -14, "aprovar_nota_minima": 4},
 }
 
@@ -365,6 +365,7 @@ class Canal:
         self.estado = "parado"
         self.serie = Serie(nome)
         self._segs = (0.0, [])
+        self.seq = {}                        # nome do segmento -> número de sequência estável (player HLS)
         # chat
         self.msgs = deque()                  # (ts, usuário, peso, riso)
         self.cont = defaultdict(lambda: [0, 0])   # segundo -> [mensagens, risadas]
@@ -666,6 +667,17 @@ def ler_wav(wav):
         return np.frombuffer(w.readframes(w.getnframes()), dtype=np.int16).astype(np.float32) / 32768.0
 
 
+VERSOES = ("com", "sem", "ambas")
+
+
+def versoes_legenda():
+    """Quais versões verticais gerar: com legenda, sem legenda ou as duas."""
+    if not CFG["legenda"]["ativa"]:
+        return "sem"
+    v = CFG["legenda"].get("versoes", "ambas")
+    return v if v in VERSOES else "ambas"
+
+
 FONTES = BASE / "fontes"
 FONTES_FF = str(FONTES).replace("\\", "/").replace(":", "\\:")   # formato que o filtro ass do ffmpeg aceita
 
@@ -759,14 +771,17 @@ def cortar(c, encoder):
     entrada = "concat:" + "|".join(p.name for _, p in sel)
     nome = nome_arquivo(c)
     vert = CLIPES / f"{nome}_vertical.mp4"
+    limpo = CLIPES / f"{nome}_vertical_sem_legenda.mp4"
     cru = CLIPES / f"{nome}_horizontal.mp4"
     txt = CLIPES / f"{nome}_post.txt"
     run = lambda args: subprocess.run(args, cwd=pasta, capture_output=True, text=True, creationflags=NO_WINDOW)
     janela = [FFMPEG, "-y", "-hide_banner", "-loglevel", "error", "-ss", f"{offset:.2f}", "-i", entrada, "-t", f"{dur:.2f}"]
 
-    # 1. transcrição da janela inteira
+    # 1. transcrição da janela inteira (pulada quando só a versão sem legenda é pedida)
+    versoes = versoes_legenda()
+    editar = CFG["edicao"]["ativa"]
     palavras = []
-    if CFG["legenda"]["ativa"]:
+    if CFG["legenda"]["ativa"] and (versoes != "sem" or editar):
         wav = TMP / f"{c['id']}.wav"
         try:
             run(janela + ["-vn", "-ac", "1", "-ar", "16000", "-c:a", "pcm_s16le", str(wav)])
@@ -784,7 +799,6 @@ def cortar(c, encoder):
     contexto = f"Live de twitch.tv/{canal} jogando {jogo}. Sinais do momento: {sinais}."
     if c.get("nota"):
         contexto += f" Nota de quem marcou: {c['nota']}."
-    editar = CFG["edicao"]["ativa"]
     if editar:
         ed = edicao.editar(palavras, dur, pico, contexto, CFG.get("anthropic_api_key", ""))
     else:   # edição desligada: janela inteira, sem IA, sem gancho
@@ -796,27 +810,33 @@ def cortar(c, encoder):
     y_leg, y_gancho = posicoes_texto(cc)
     ass = pasta / f"_leg_{c['id']}.ass"
     marca = cc.get("marca", "") if editar else ""
-    tem_texto = edicao.gerar_ass(ass, palavras, ini, fim, y_leg, ed["gancho"], y_gancho, marca)
-    fim_filtro = "format=yuv420p"
-    if tem_texto:
-        fim_filtro = f"ass={ass.name}:fontsdir='{FONTES_FF}',format=yuv420p"
+    tem_texto = versoes != "sem" and edicao.gerar_ass(ass, palavras, ini, fim, y_leg, ed["gancho"], y_gancho, marca)
 
-    # 4. zoom rápido no pico
+    # 4. zoom rápido no pico (vale para as duas versões)
+    zoom = ""
     p = pico - ini
     if editar and CFG["edicao"]["zoom"] and 0.5 < p < (fim - ini) - 1:
         fps = fps_da_fonte(sel[0][1])
         z = f"1+0.12*min(1\\,max(0\\,(it-{p:.2f})/0.12))*min(1\\,max(0\\,({p + 0.9:.2f}-it)/0.25))"
-        fim_filtro = (f"zoompan=z='{z}':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1:s=1080x1920:fps={fps},"
-                      + fim_filtro)
+        zoom = f"zoompan=z='{z}':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1:s=1080x1920:fps={fps},"
 
     final = [FFMPEG, "-y", "-hide_banner", "-loglevel", "error", "-ss", f"{offset + ini:.2f}", "-i", entrada,
              "-t", f"{fim - ini:.2f}"]
     audio_f = ["-af", f"loudnorm=I={CFG['edicao']['volume_lufs']}:TP=-1.5:LRA=11"] if editar else []
-    r = run(final + ["-filter_complex", filtro_vertical(cc, fim_filtro), "-map", "[v]", "-map", "0:a:0?",
-                     *audio_f, *encoder, "-c:a", "aac", "-b:a", "160k", "-ar", "48000", "-movflags", "+faststart", str(vert)])
-    ass.unlink(missing_ok=True)
-    if r.returncode != 0:
-        raise RuntimeError(r.stderr.strip()[-400:] or "ffmpeg falhou")
+
+    def render(com_texto, saida):
+        fim_filtro = zoom + (f"ass={ass.name}:fontsdir='{FONTES_FF}'," if com_texto else "") + "format=yuv420p"
+        r = run(final + ["-filter_complex", filtro_vertical(cc, fim_filtro), "-map", "[v]", "-map", "0:a:0?",
+                         *audio_f, *encoder, "-c:a", "aac", "-b:a", "160k", "-ar", "48000", "-movflags", "+faststart", str(saida)])
+        if r.returncode != 0:
+            raise RuntimeError(r.stderr.strip()[-400:] or "ffmpeg falhou")
+
+    try:
+        render(tem_texto, vert)          # principal: com legenda (ou sem, se não houver fala ou se pediram "sem")
+        if tem_texto and versoes == "ambas":
+            render(False, limpo)         # cópia limpa: sem legenda, gancho nem marca
+    finally:
+        ass.unlink(missing_ok=True)
     # versão horizontal da janela inteira, sem edição, para quem quiser editar na mão
     run(janela + ["-map", "0:v:0", "-map", "0:a:0?", "-c", "copy", "-movflags", "+faststart", str(cru)])
 
@@ -825,27 +845,27 @@ def cortar(c, encoder):
         txt.write_text(f"{ed['titulo']}\n\n{ed['descricao']}\n\n{hashtags}\n".strip() + "\n", encoding="utf-8")
     else:
         txt = None
-    info = {"legenda": bool(palavras), "titulo": ed["titulo"], "descricao": ed["descricao"],
+    info = {"legenda": bool(tem_texto), "limpo": limpo.name if limpo.exists() else None, "titulo": ed["titulo"], "descricao": ed["descricao"],
             "hashtags": ed["hashtags"], "gancho": ed["gancho"], "nota_ia": ed["nota"], "ia": ed["ia"],
             "erro_ia": ed.get("erro_ia"), "corte": [round(ini, 1), round(fim, 1)] if editar else None, "post": txt.name if txt else None}
     return vert.name, (cru.name if cru.exists() else None), info
 
 
-def aprovar_arquivos(vert, post):
-    shutil.copy2(CLIPES / vert, APROVADOS / vert)
-    if post and (CLIPES / post).exists():
-        shutil.copy2(CLIPES / post, APROVADOS / post)
+def aprovar_arquivos(c):
+    for k in ("arquivo", "limpo", "post"):
+        if c.get(k) and (CLIPES / c[k]).exists():
+            shutil.copy2(CLIPES / c[k], APROVADOS / c[k])
 
 
 def desaprovar_arquivos(c):
-    for k in ("arquivo", "post"):
+    for k in ("arquivo", "limpo", "post"):
         if c.get(k):
             (APROVADOS / c[k]).unlink(missing_ok=True)
 
 
 def preparar_cortes():
     encoder = detectar_encoder()
-    if CFG["legenda"]["ativa"]:
+    if CFG["legenda"]["ativa"] and (versoes_legenda() != "sem" or CFG["edicao"]["ativa"]):
         try:
             whisper()
         except Exception as e:
@@ -869,7 +889,7 @@ def cortador(encoder):
         if not pendente:
             time.sleep(1.5)
             continue
-        for chave in ("arquivo", "cru", "post"):
+        for chave in ("arquivo", "limpo", "cru", "post"):
             if pendente.get(chave):
                 (CLIPES / pendente[chave]).unlink(missing_ok=True)
         inicio = time.time()
@@ -879,8 +899,8 @@ def cortador(encoder):
             nota_ia = info.get("nota_ia")
             fraco = nota_ia is not None and nota_ia < CFG["edicao"]["aprovar_nota_minima"]
             if pendente.get("auto") and not fraco:
-                aprovar_arquivos(vert, info.get("post"))
                 DB.mudar(pendente, status="aprovado", aprovado_por="automático", **upd)
+                aprovar_arquivos(pendente)
             else:
                 if fraco:
                     upd["obs"] = f"a IA deu nota {nota_ia}; ficou para revisão em vez de aprovar sozinho"
@@ -1111,6 +1131,7 @@ def estado():
         "canais": [cn.resumo() for cn in CANAIS.values()],
         "chat": IRC.estado, "encoder": ESTADO["encoder"], "livre_gb": round(livre, 1),
         "twitch": ESTADO["twitch"], "legenda": ESTADO["legenda"] if CFG["legenda"]["ativa"] else "desligada",
+        "versoes": versoes_legenda(),
         "auto": CFG["auto"], "retencao_h": CFG["retencao_h"], "fator": CFG["chat"]["fator"],
         "link_amigo": f"{ESTADO['tunel']}/?k={CFG['senha']}" if ESTADO["tunel"] else None,
         "agora": iso(agora()), "agora_ts": int(time.time()), "clipes": clipes,
@@ -1133,6 +1154,15 @@ def api_serie(canal: str, seg: int = 900, de: int = 0, ate: int = 0, pontos: int
                    for c in DB.clipes if c.get("canal") == canal]
     eventos = [e for e in eventos if e["ts"] + e["depois"] >= de and e["ts"] - e["antes"] <= ate]
     return {**out, "ate": ate, "eventos": eventos}
+
+
+@app.post("/api/config")
+async def api_config(request: Request):
+    d = await request.json()
+    if d.get("versoes") in VERSOES:
+        CFG["legenda"]["versoes"] = d["versoes"]
+    salvar_cfg()
+    return {"versoes": versoes_legenda()}
 
 
 @app.post("/api/canais")
@@ -1200,7 +1230,7 @@ async def api_acao(cid: str, acao: str, request: Request):
     if acao == "aprovar":
         if c["status"] != "pronto":
             raise HTTPException(400, "clipe ainda não está pronto")
-        aprovar_arquivos(c["arquivo"], c.get("post"))
+        aprovar_arquivos(c)
         DB.mudar(c, status="aprovado", aprovado_por=(d.get("quem") or "")[:20])
     elif acao == "descartar":
         desaprovar_arquivos(c)
@@ -1230,6 +1260,44 @@ def arquivo(nome: str, baixar: int = 0):
         raise HTTPException(404)
     tipo = "video/mp4" if p.suffix == ".mp4" else "text/plain; charset=utf-8"
     return FileResponse(p, media_type=tipo, filename=nome if baixar else None)
+
+
+# ---------------------------------------------------------------- player da gravação (sem anúncios)
+@app.get("/hls/{canal}/live.m3u8")
+def hls_playlist(canal: str):
+    """Playlist HLS ao vivo com os últimos segmentos fechados da gravação.
+
+    O streamlink já descarta os anúncios da Twitch (--twitch-disable-ads), então este player
+    não mostra a tela de intervalo comercial. Fica uns 10 a 15 s atrás da live."""
+    cn = obter_canal(canal)
+    segs = cn.segmentos()[:-1]                       # o último ainda está sendo escrito
+    if not segs or (agora() - segs[-1][0]).total_seconds() > 90:
+        raise HTTPException(404, "sem gravação recente")
+    for _, p in segs[-40:]:                          # numera na ordem em que aparecem; nunca renumera
+        if p.name not in cn.seq:
+            cn.seq[p.name] = len(cn.seq)
+    janela = segs[-6:]
+    linhas = ["#EXTM3U", "#EXT-X-VERSION:3", f"#EXT-X-TARGETDURATION:{SEG * 3}",
+              f"#EXT-X-MEDIA-SEQUENCE:{cn.seq[janela[0][1].name]}"]
+    for i, (s, p) in enumerate(janela):
+        if i and (s - janela[i - 1][0]).total_seconds() > SEG * 3:
+            linhas.append("#EXT-X-DISCONTINUITY")    # buraco na gravação (queda ou intervalo)
+        prox = janela[i + 1][0] if i + 1 < len(janela) else segs[-1][0] if len(segs) > len(janela) else None
+        dur = (prox - s).total_seconds() if prox else SEG
+        linhas += [f"#EXTINF:{max(1.0, min(SEG * 3, dur)):.3f},", f"{p.name}"]
+    return HTMLResponse("\n".join(linhas) + "\n", media_type="application/vnd.apple.mpegurl",
+                        headers={"Cache-Control": "no-store"})
+
+
+@app.get("/hls/{canal}/{nome}")
+def hls_segmento(canal: str, nome: str):
+    cn = obter_canal(canal)
+    if not SEG_RE.match(nome):
+        raise HTTPException(404)
+    p = cn.dir / nome
+    if not p.exists():
+        raise HTTPException(404)
+    return FileResponse(p, media_type="video/mp2t")
 
 
 def quadro_atual(cn):

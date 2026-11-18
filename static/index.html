@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Clipador</title>
+<script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.20/dist/hls.min.js"></script>
 <style>
   :root {
     --bg: #0e0e10; --card: #18181b; --fundo2: #111113; --line: #2a2a2e; --text: #efeff1; --mut: #a1a1aa;
@@ -106,6 +107,9 @@
   <span class="pill" id="p-enc">…</span>
   <span class="pill" id="p-disco">…</span>
   <span class="esp"></span>
+  <select id="versoes" title="quais versões verticais gerar em cada corte">
+    <option value="ambas">clipes com e sem legenda</option><option value="com">só com legenda</option><option value="sem">só sem legenda</option>
+  </select>
   <input id="quem" placeholder="seu nome" maxlength="20" style="width:130px">
   <button id="copiar-link" style="display:none">copiar link do amigo</button>
 </header>
@@ -159,6 +163,7 @@
     </div>
     <p class="mut">Atalhos: <b>M</b> marca no canal selecionado; <b>1</b> a <b>9</b> trocam de canal. A marcação pega 45 s antes e 15 s depois. Se duas pessoas marcarem o mesmo lance, vira um clipe só.</p>
     <div id="player-slot"></div>
+    <p class="mut" id="player-info" style="display:none"></p>
   </section>
 
   <section class="box">
@@ -294,6 +299,10 @@ function renderCanais() {
   const opts = '<option value="">todos os canais</option>' + [...new Set([...nomes, ...ultimo.clipes.map(c => c.canal)])].map(n => `<option>${esc(n)}</option>`).join('');
   if (fc.dataset.o !== opts) { fc.innerHTML = opts; fc.dataset.o = opts; fc.value = atual; }
 }
+$('#versoes').onchange = async e => {
+  const r = await post('/api/config', { versoes: e.target.value });
+  toast({ ambas: 'os próximos cortes saem com e sem legenda', com: 'os próximos cortes saem só com legenda', sem: 'os próximos cortes saem sem legenda' }[r.versoes]);
+};
 $('#filtro-canal').onchange = e => { filtroCanal = e.target.value; ls.set('filtroCanal', filtroCanal); render(); };
 
 function duracao(inicio) {
@@ -317,14 +326,40 @@ function renderPainel() {
 }
 $('#qualidade').onchange = async e => { await post(`/api/canais/${sel}/config`, { qualidade: e.target.value }); toast('vale a partir da próxima reconexão'); };
 
+/* player: por padrão toca a própria gravação (o streamlink já tira os anúncios, então não aparece a tela
+   de intervalo comercial da Twitch). Fica uns 10 a 15 s atrás da live. O player da Twitch fica como opção. */
+let hls = null, fonte = ls.get('fontePlayer', 'gravacao');
+function fecharPlayer() {
+  if (hls) { hls.destroy(); hls = null; }
+  $('#player-slot').innerHTML = ''; $('#player-info').style.display = 'none';
+  $('#tg-player').textContent = 'mostrar player';
+}
 function abrirPlayer() {
-  $('#player-slot').innerHTML = sel ? `<iframe class="player" allowfullscreen src="https://player.twitch.tv/?channel=${encodeURIComponent(sel)}&parent=${location.hostname}&muted=false"></iframe>` : '';
+  fecharPlayer();
+  if (!sel) return;
+  const info = $('#player-info'); info.style.display = '';
+  const troca = `<a href="#" id="trocar-fonte">${fonte === 'gravacao' ? 'usar o player da Twitch' : 'voltar para a gravação sem anúncios'}</a>`;
+  if (fonte === 'twitch') {
+    $('#player-slot').innerHTML = `<iframe class="player" allowfullscreen src="https://player.twitch.tv/?channel=${encodeURIComponent(sel)}&parent=${location.hostname}&muted=false"></iframe>`;
+    info.innerHTML = `Player da Twitch: ao vivo, mas com os intervalos comerciais. · ${troca}`;
+  } else {
+    $('#player-slot').innerHTML = '<video class="player" controls autoplay playsinline></video>';
+    const v = $('#player-slot video'), url = `/hls/${encodeURIComponent(sel)}/live.m3u8`;
+    info.innerHTML = `Tocando a gravação deste PC: sem anúncios, uns 15 s atrás da live. · ${troca}`;
+    if (window.Hls && Hls.isSupported()) {
+      hls = new Hls({ liveSyncDurationCount: 2, liveMaxLatencyDurationCount: 5, manifestLoadingMaxRetry: 30, manifestLoadingRetryDelay: 3000 });
+      hls.on(Hls.Events.ERROR, (e, d) => { if (d.fatal) { info.innerHTML = `Sem gravação recente deste canal (a live precisa estar no ar). · ${troca}`; ligarTroca(); } });
+      hls.loadSource(url); hls.attachMedia(v);
+    } else v.src = url;   // Safari toca HLS sozinho
+  }
+  ligarTroca();
   $('#tg-player').textContent = 'esconder player';
 }
-$('#tg-player').onclick = () => {
-  if ($('#player-slot').innerHTML) { $('#player-slot').innerHTML = ''; $('#tg-player').textContent = 'mostrar player'; }
-  else abrirPlayer();
-};
+function ligarTroca() {
+  const a = $('#trocar-fonte'); if (!a) return;
+  a.onclick = e => { e.preventDefault(); fonte = fonte === 'gravacao' ? 'twitch' : 'gravacao'; ls.set('fontePlayer', fonte); abrirPlayer(); };
+}
+$('#tg-player').onclick = () => { $('#player-slot').innerHTML ? fecharPlayer() : abrirPlayer(); };
 
 /* ---------------------------------------------------------------- gráfico */
 document.querySelectorAll('#faixas button').forEach(b => {
@@ -543,6 +578,7 @@ function criarCard(c) {
         ${['aprovado', 'descartado'].includes(c.status) ? '<button data-x="restaurar">Voltar p/ revisão</button>' : ''}
         ${c.status === 'erro' ? '<button data-x="recortar">Tentar de novo</button>' : ''}
         ${c.arquivo ? `<a class="tag" href="/arquivo/${encodeURIComponent(c.arquivo)}?baixar=1">baixar vertical</a>` : ''}
+        ${c.limpo ? `<a class="tag" href="/arquivo/${encodeURIComponent(c.limpo)}?baixar=1">baixar sem legenda</a>` : ''}
         ${c.cru ? `<a class="tag" href="/arquivo/${encodeURIComponent(c.cru)}?baixar=1">baixar horizontal</a>` : ''}
       </div>
       ${c.erro ? `<div class="erro">${esc(c.erro)}</div>` : ''}
@@ -612,6 +648,7 @@ async function atualizar() {
     $('#p-enc').textContent = d.encoder ? `corte: ${d.encoder}` : 'corte: testando';
     $('#p-tw').textContent = `twitch: ${d.twitch}`; $('#p-tw').className = 'pill ' + (d.twitch === 'conectado' ? 'ok' : 'bad');
     $('#p-leg').textContent = `legenda: ${d.legenda}`; $('#p-leg').className = 'pill ' + (d.legenda.startsWith('Whisper') ? 'ok' : '');
+    if (document.activeElement !== $('#versoes')) $('#versoes').value = d.versoes;
     $('#p-disco').textContent = `${d.livre_gb} GB livres` + (d.retencao_h ? ` · guarda ${d.retencao_h} h` : '');
     $('#p-disco').className = 'pill ' + (d.livre_gb < 20 ? 'bad' : '');
     if (d.link_amigo) { const b = $('#copiar-link'); b.style.display = ''; b.onclick = () => navigator.clipboard.writeText(d.link_amigo).then(() => toast('link copiado'), () => prompt('Link do amigo:', d.link_amigo)); }
