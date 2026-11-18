@@ -6,6 +6,7 @@ dados.json
 gravacao/
 clipes/
 tmp/
+sinais/
 
 # python
 .venv/

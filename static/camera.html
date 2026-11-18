@@ -25,7 +25,7 @@
 </head>
 <body>
 <a href="/">← voltar ao painel</a>
-<h2 style="margin:10px 0 0">Layout dos clipes verticais</h2>
+<h2 style="margin:10px 0 0">Layout dos clipes verticais · <span id="nome-canal"></span></h2>
 <p class="mut">Arraste um retângulo em volta da facecam no quadro da live. No modo <b>dividido</b> a câmera vai em cima e o jogo embaixo. No modo <b>desfocado</b> a tela inteira fica no meio, com fundo desfocado (funciona sem câmera).</p>
 <div class="grid">
   <div class="box">
@@ -40,15 +40,18 @@
     <div class="linha"><label>Abrir o jogo <input type="range" id="larg" min="1" max="2" step="0.05"></label><span id="larg-v" class="mut"></span></div>
     <div class="linha"><label>Segundos antes <input type="number" id="antes" min="5" max="180" style="width:70px"></label><label>depois <input type="number" id="depois" min="0" max="120" style="width:70px"></label></div>
     <div class="linha"><button class="prim" id="salvar">salvar e ver prévia</button></div>
-    <p class="mut">Vale para os próximos cortes. Clipes já prontos podem ser refeitos pelo ajuste de tempo no painel.</p>
+    <p class="mut">Vale só para este canal, nos próximos cortes. Clipes já prontos podem ser refeitos pelo ajuste de tempo no painel.</p>
     <img id="previa" alt="prévia vertical">
   </div>
 </div>
 <script>
 const $ = s => document.querySelector(s);
+const CANAL = new URLSearchParams(location.search).get('canal') || '';
+const Q = 'canal=' + encodeURIComponent(CANAL);
+$('#nome-canal').textContent = CANAL || '(nenhum canal)';
 let cam = null;
 async function carregar() {
-  const d = await (await fetch('/api/layout')).json();
+  const d = await (await fetch('/api/layout?' + Q)).json();
   cam = d.camera; $('#modo').value = d.modo; $('#alt').value = d.camera_altura; $('#larg').value = d.jogo_largura;
   $('#antes').value = d.antes; $('#depois').value = d.depois; rot(); desenhar();
 }
@@ -59,7 +62,7 @@ function quadro(novo) {
   const img = $('#quadro');
   img.onload = () => { $('#msg').textContent = ''; desenhar(); };
   img.onerror = () => { $('#msg').textContent = 'sem gravação ainda (a live precisa estar no ar)'; };
-  img.src = '/api/quadro.png?novo=' + (novo ? 1 : 0) + '&_=' + Date.now();
+  img.src = '/api/quadro.png?' + Q + '&novo=' + (novo ? 1 : 0) + '&_=' + Date.now();
 }
 function desenhar() {
   const s = $('#sel'); if (!cam) { s.style.display = 'none'; return; }
@@ -75,8 +78,8 @@ $('#salvar').onclick = async () => {
   const body = { modo: $('#modo').value, camera_altura: +$('#alt').value, jogo_largura: +$('#larg').value, antes: +$('#antes').value, depois: +$('#depois').value };
   if (cam) body.camera = cam;
   if (body.modo === 'dividido' && !cam) { alert('Marque a câmera no quadro primeiro.'); return; }
-  await fetch('/api/layout', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-  $('#previa').src = '/api/previa.png?_=' + Date.now();
+  await fetch('/api/layout?' + Q, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  $('#previa').src = '/api/previa.png?' + Q + '&_=' + Date.now();
 };
 carregar(); quadro(false);
 </script>
